@@ -1,0 +1,21 @@
+{
+	"version": "2.0.0",
+	"tasks": [
+		{
+			"label": "Build Windows Executable",
+			"type": "shell",
+			"command": "python",
+			"args": [
+				"build_windows.py"
+			],
+		},
+		{
+			"label": "Run",
+			"type": "shell",
+			"command": "python",
+			"args": [
+				"main.py"
+			],
+		}
+	]
+}
