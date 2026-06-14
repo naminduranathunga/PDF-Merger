@@ -19,6 +19,7 @@ PDF-Merger
 │   ├── ui
 │   │   ├── __init__.py    # UI package initializer
 │   │   ├── main_window.py  # Main window UI definition
+│   │   ├── merge_progress_dialog.py # Merge progress dialog UI definition
 |   |   └── about_dialog.py # About dialog UI definition
 │   └── logic
 │       ├── __init__.py    # Logic package initializer
