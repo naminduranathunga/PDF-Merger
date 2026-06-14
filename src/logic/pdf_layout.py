@@ -1,7 +1,8 @@
 import math
 from PyPDF2 import PdfReader, PdfWriter, PageObject, Transformation
+from logic.merge_exceptions import MergeCancelledError
 
-def generate_n_up_pdf(input_writer, output_path, options):
+def generate_n_up_pdf(input_writer, output_path, options, progress_callback=None, cancel_callback=None):
     """
     Generates a PDF where multiple pages are placed on one page.
     options: {
@@ -20,6 +21,14 @@ def generate_n_up_pdf(input_writer, output_path, options):
     # we assume input_writer is a list of PageObjects or similar, but PdfWriter is what we have.
     # We'll write to a temporary buffer if needed, or just iterate pages.
     
+    def report_progress(current, total, status=None):
+        if progress_callback:
+            progress_callback(current, total, status)
+
+    def check_cancelled():
+        if cancel_callback and cancel_callback():
+            raise MergeCancelledError()
+
     source_pages = input_writer.pages
     total_source_pages = len(source_pages)
     
@@ -42,7 +51,9 @@ def generate_n_up_pdf(input_writer, output_path, options):
     new_writer = PdfWriter()
     
     current_source_idx = 0
+    report_progress(0, total_source_pages, "Building N-up layout...")
     while current_source_idx < total_source_pages:
+        check_cancelled()
         # Create a new blank output page
         new_page = PageObject.create_blank_page(None, page_width, page_height)
         
@@ -50,6 +61,7 @@ def generate_n_up_pdf(input_writer, output_path, options):
             for c in range(cols):
                 if current_source_idx >= total_source_pages:
                     break
+                check_cancelled()
                 
                 src_page = source_pages[current_source_idx]
                 
@@ -100,10 +112,13 @@ def generate_n_up_pdf(input_writer, output_path, options):
                 # For now, we'll focus on the layout logic.
                 
                 current_source_idx += 1
+                report_progress(current_source_idx, total_source_pages, f"Placing page {current_source_idx} of {total_source_pages}...")
             if current_source_idx >= total_source_pages:
                 break
                 
         new_writer.add_page(new_page)
 
+    check_cancelled()
+    report_progress(total_source_pages, total_source_pages, "Writing output file...")
     with open(output_path, "wb") as f:
         new_writer.write(f)

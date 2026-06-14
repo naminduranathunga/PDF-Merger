@@ -3,12 +3,14 @@ from PyQt6.QtWidgets import (
     QListWidgetItem, QFileDialog, QMessageBox, QInputDialog, QStyle, QDialog,
     QFormLayout, QComboBox, QSpinBox, QCheckBox, QDoubleSpinBox, QGroupBox, QLabel
 )
-from PyQt6.QtCore import Qt, QSize, QUrl, QRectF
+from PyQt6.QtCore import Qt, QSize, QUrl, QRectF, QThread
 from PyQt6.QtGui import QAction, QIcon, QPalette, QColor, QLinearGradient, QBrush, QDesktopServices, QFont, QPainter, QPen, QKeySequence
 import os
 from PyPDF2 import PdfReader, PdfWriter
 from logic.pdf_layout import generate_n_up_pdf
 from ui.about_dialog import AboutDialog
+from ui.merge_progress_dialog import MergeProgressDialog
+from ui.merge_worker import MergeWorker
 
 
 def get_resource_path(relative_path):
@@ -298,6 +300,9 @@ class MainWindow(QMainWindow):
         super().__init__()
         self.setWindowTitle("PDF Merger")
         self.setMinimumSize(700, 500)
+        self.merge_thread = None
+        self.merge_worker = None
+        self.merge_progress_dialog = None
 
         # Set window icon
         # Try PyInstaller path first, then fallback to relative dev path
@@ -509,6 +514,91 @@ class MainWindow(QMainWindow):
         dialog = AboutDialog(self)
         dialog.exec()
 
+    def _collect_merge_jobs(self):
+        jobs = []
+        for index in range(self.list_widget.count()):
+            item = self.list_widget.item(index)
+            data = item.data(Qt.ItemDataRole.UserRole)
+            jobs.append({
+                "path": data["path"],
+                "start": data["pages"][0],
+                "end": data["pages"][1],
+            })
+        return jobs
+
+    def _reset_merge_state(self):
+        self.merge_btn.setEnabled(True)
+        self.merge_adv_btn.setEnabled(True)
+        self.merge_thread = None
+        self.merge_worker = None
+        self.merge_progress_dialog = None
+
+    def _start_merge_worker(self, save_path, options):
+        jobs = self._collect_merge_jobs()
+        if not jobs:
+            QMessageBox.warning(self, "Merge PDFs", "The list is empty. Add some PDFs first.")
+            return
+
+        self.merge_btn.setEnabled(False)
+        self.merge_adv_btn.setEnabled(False)
+
+        self.merge_progress_dialog = MergeProgressDialog(self)
+        self.merge_progress_dialog.canceled.connect(self.cancel_merge)
+        self.merge_progress_dialog.show()
+
+        self.merge_thread = QThread(self)
+        self.merge_worker = MergeWorker(jobs, save_path, options)
+        self.merge_worker.moveToThread(self.merge_thread)
+
+        self.merge_thread.started.connect(self.merge_worker.run)
+        self.merge_worker.progressChanged.connect(self.merge_progress_dialog.set_progress)
+        self.merge_worker.statusChanged.connect(self.merge_progress_dialog.set_status)
+        self.merge_worker.finished.connect(self._on_merge_finished)
+        self.merge_worker.error.connect(self._on_merge_error)
+        self.merge_worker.canceled.connect(self._on_merge_canceled)
+
+        self.merge_worker.finished.connect(self.merge_thread.quit)
+        self.merge_worker.error.connect(self.merge_thread.quit)
+        self.merge_worker.canceled.connect(self.merge_thread.quit)
+        self.merge_thread.finished.connect(self.merge_thread.deleteLater)
+        self.merge_thread.finished.connect(self._cleanup_after_merge)
+
+        self.merge_thread.start()
+
+    def cancel_merge(self):
+        if self.merge_worker:
+            self.merge_worker.request_cancel()
+        if self.merge_progress_dialog:
+            self.merge_progress_dialog.set_cancelling()
+
+    def _cleanup_after_merge(self):
+        if self.merge_progress_dialog:
+            self.merge_progress_dialog.finish()
+
+    def _on_merge_finished(self, output_path):
+        if self.merge_progress_dialog:
+            self.merge_progress_dialog.set_progress(100)
+            self.merge_progress_dialog.finish()
+
+        QMessageBox.information(self, "Success", f"Artifact created successfully!\n\nOpening the file now...")
+        QDesktopServices.openUrl(QUrl.fromLocalFile(output_path))
+        self._reset_merge_state()
+
+    def _on_merge_canceled(self):
+        if self.merge_progress_dialog:
+            self.merge_progress_dialog.set_cancelling()
+            self.merge_progress_dialog.finish()
+
+        QMessageBox.information(self, "Merge PDFs", "Merge canceled.")
+        self._reset_merge_state()
+
+    def _on_merge_error(self, message):
+        if self.merge_progress_dialog:
+            self.merge_progress_dialog.finish()
+
+        QMessageBox.critical(self, "Error", f"Failed to create the masterpiece:\n{message}")
+        self._reset_merge_state()
+
     def remove_pdf(self):
         for item in self.list_widget.selectedItems():
             self.list_widget.takeItem(self.list_widget.row(item))
@@ -586,37 +676,4 @@ class MainWindow(QMainWindow):
         if not save_path:
             return
 
-        try:
-            writer = PdfWriter()
-            # Disable merge buttons and show wait cursor
-            self.merge_btn.setEnabled(False)
-            self.merge_adv_btn.setEnabled(False)
-            self.setCursor(Qt.CursorShape.WaitCursor)
-            
-            for i in range(self.list_widget.count()):
-                item = self.list_widget.item(i)
-                data = item.data(Qt.ItemDataRole.UserRole)
-                path = data["path"]
-                start, end = data["pages"]
-                
-                reader = PdfReader(path)
-                for page_num in range(start, end):
-                    writer.add_page(reader.pages[page_num])
-            
-            if options.get('is_nup', False):
-                generate_n_up_pdf(writer, save_path, options)
-            else:
-                with open(save_path, "wb") as f:
-                    writer.write(f)
-                
-            QMessageBox.information(self, "Success", f"Artifact created successfully!\n\nOpening the file now...")
-            
-            # Launch the file using OS default method
-            QDesktopServices.openUrl(QUrl.fromLocalFile(save_path))
-            
-        except Exception as e:
-            QMessageBox.critical(self, "Error", f"Failed to create the masterpiece:\n{str(e)}")
-        finally:
-            self.merge_btn.setEnabled(True)
-            self.merge_adv_btn.setEnabled(True)
-            self.unsetCursor()
+        self._start_merge_worker(save_path, options)
