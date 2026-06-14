@@ -19,24 +19,30 @@ DisableProgramGroupPage=yes
 PrivilegesRequired=lowest
 OutputDir=installer
 OutputBaseFilename=PDFMergerSetup
-; SetupIconFile=src\icon.png
+SetupIconFile=setup\icon-setup.ico
 Compression=lzma
 SolidCompression=yes
 WizardStyle=modern
+DisableWelcomePage=no
+DisableDirPage=auto
+WizardImageFile=setup\pdf-setup.bmp
+WizardSmallImageFile=setup\pdf-setup-small-v2.bmp
 
 [Languages]
 Name: "english"; MessagesFile: "compiler:Default.isl"
 
 [Tasks]
 Name: "desktopicon"; Description: "{cm:CreateDesktopIcon}"; GroupDescription: "{cm:AdditionalIcons}"; Flags: unchecked
+Name: "quicklaunchicon"; Description: "Create a &Quick Launch icon"; GroupDescription: "Additional icons:"; Flags: unchecked
 
 [Files]
 Source: "dist\{#ToolExeName}"; DestDir: "{app}"; Flags: ignoreversion
+Source: "src\user_guide.pdf"; DestDir: "{app}"; Flags: ignoreversion 
 ; NOTE: Don't use "Flags: ignoreversion" on any shared system files
 
 [Icons]
 Name: "{autoprograms}\{#ToolName}"; Filename: "{app}\{#ToolExeName}"
-Name: "{autodesktop}\{#ToolName}"; Filename: "{app}\{#ToolExeName}"; Tasks: desktopicon
+Name: "{autodesktop}\{#ToolName}"; Filename: "{app}\{#ToolExeName}"; Tasks: desktopicon quicklaunchicon
 
 [Run]
 Filename: "{app}\{#ToolExeName}"; Description: "{cm:LaunchProgram,{#StringChange(ToolName, '&', '&&')}}"; Flags: nowait postinstall skipifsilent
