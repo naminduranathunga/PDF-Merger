@@ -1,0 +1,6 @@
+.venv
+dist
+installer
+build
+
+__pycache__
