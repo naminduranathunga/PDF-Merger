@@ -20,6 +20,60 @@ def get_resource_path(relative_path):
 
     return os.path.join(base_path, relative_path)
 
+
+class PdfListWidget(QListWidget):
+    def __init__(self, add_paths_callback, parent=None):
+        super().__init__(parent)
+        self.add_paths_callback = add_paths_callback
+        self.setAcceptDrops(True)
+        self.setDragEnabled(True)
+        self.setDragDropMode(QListWidget.DragDropMode.InternalMove)
+
+    def _extract_pdf_paths(self, event):
+        pdf_paths = []
+        for url in event.mimeData().urls():
+            if not url.isLocalFile():
+                continue
+
+            path = url.toLocalFile()
+            if os.path.isfile(path) and path.lower().endswith(".pdf"):
+                pdf_paths.append(path)
+
+        return pdf_paths
+
+    def dragEnterEvent(self, event):
+        if event.source() is self:
+            super().dragEnterEvent(event)
+            return
+
+        if self._extract_pdf_paths(event):
+            event.acceptProposedAction()
+        else:
+            event.ignore()
+
+    def dragMoveEvent(self, event):
+        if event.source() is self:
+            super().dragMoveEvent(event)
+            return
+
+        if self._extract_pdf_paths(event):
+            event.acceptProposedAction()
+        else:
+            event.ignore()
+
+    def dropEvent(self, event):
+        if event.source() is self:
+            super().dropEvent(event)
+            return
+
+        pdf_paths = self._extract_pdf_paths(event)
+        if not pdf_paths:
+            event.ignore()
+            return
+
+        self.add_paths_callback(pdf_paths)
+        event.acceptProposedAction()
+
 class LayoutPreviewWidget(QWidget):
     def __init__(self, parent=None):
         super().__init__(parent)
@@ -271,11 +325,8 @@ class MainWindow(QMainWindow):
         main_layout.setSpacing(20)
 
         # Left Column: List View
-        self.list_widget = QListWidget()
+        self.list_widget = PdfListWidget(self.add_pdf_files)
         self.list_widget.setSelectionMode(QListWidget.SelectionMode.ExtendedSelection)
-        self.list_widget.setAcceptDrops(True)
-        self.list_widget.setDragEnabled(True)
-        self.list_widget.setDragDropMode(QListWidget.DragDropMode.InternalMove)
         main_layout.addWidget(self.list_widget, stretch=3)
 
         # Right Column Container
@@ -424,6 +475,10 @@ class MainWindow(QMainWindow):
 
     def add_pdf(self):
         files, _ = QFileDialog.getOpenFileNames(self, "Select PDF Files", "", "PDF Files (*.pdf);;All Files (*)")
+        self.add_pdf_files(files)
+
+    def add_pdf_files(self, files):
+        added_count = 0
         for f in files:
             try:
                 reader = PdfReader(f)
@@ -431,8 +486,12 @@ class MainWindow(QMainWindow):
                 item = QListWidgetItem(f"📄 {os.path.basename(f)} ({num_pages} pages)")
                 item.setData(Qt.ItemDataRole.UserRole, {"path": f, "pages": (0, num_pages)})
                 self.list_widget.addItem(item)
+                added_count += 1
             except Exception as e:
                 QMessageBox.critical(self, "Error", f"Could not read {f}:\n{str(e)}")
+
+        if files and added_count == 0:
+            QMessageBox.warning(self, "PDF Drop", "No valid PDF files were added.")
 
     def clear_all(self):
         self.list_widget.clear()
